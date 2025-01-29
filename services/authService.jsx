@@ -1,21 +1,38 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Alert } from 'react-native';
 
-const API_URL = "http://localhost:8080/auth/v1";
+const API_URL = "http://Expens-KongA-mIxa7iWuih8L-2043788574.ap-south-1.elb.amazonaws.com/auth/v1";
 
 const TOKEN_KEYS = {
   ACCESS_TOKEN: "access_token",
   REFRESH_TOKEN: "refresh_token",
 };
 
+// Helper function to show alerts
+const showAlert = (title, message) => {
+  Alert.alert(title, message, [{ text: 'OK' }]);
+};
+
+// Helper function to handle API errors
+const handleApiError = (error, customMessage) => {
+  console.error(customMessage, error);
+  const errorMessage = error?.message || 'An unexpected error occurred';
+  showAlert('Error', errorMessage);
+  return {
+    success: false,
+    message: errorMessage,
+  };
+};
+
 export const checkAuthStatus = async () => {
   try {
+    console.log("Checking authentication...");
     const accessToken = await AsyncStorage.getItem(TOKEN_KEYS.ACCESS_TOKEN);
-    console.log(accessToken)
     if (!accessToken) {
-      return { isAuthenticated: false };
+      return { isAuthenticated: false, message: "Access token not found" };
     }
-
-    // Verify access token with backend
+     
+    console.log(accessToken)
     const response = await fetch(`${API_URL}/ping`, {
       method: "GET",
       headers: {
@@ -23,18 +40,22 @@ export const checkAuthStatus = async () => {
         "Content-Type": "application/json",
       },
     });
-    
-    console.log(response);
+
+    console.log(response)
 
     if (response.ok) {
       return { isAuthenticated: true };
     }
 
-    // If access token is invalid, try refresh token
-    return await refreshTokens();
+    if (response.status === 401) {
+      return await refreshTokens();
+    }
+
+    const errorData = await response.json();
+    showAlert('Authentication Error', errorData.message || 'Failed to verify authentication');
+    return { isAuthenticated: false, message: errorData.message };
   } catch (error) {
-    console.error("Auth check failed:", error);
-    return { isAuthenticated: false };
+    return handleApiError(error, "Auth check failed:");
   }
 };
 
@@ -42,7 +63,8 @@ export const refreshTokens = async () => {
   try {
     const refreshToken = await AsyncStorage.getItem(TOKEN_KEYS.REFRESH_TOKEN);
     if (!refreshToken) {
-      return { isAuthenticated: false };
+      showAlert('Authentication Error', 'Refresh token not found');
+      return { isAuthenticated: false, message: "Refresh token not found" };
     }
 
     const response = await fetch(`${API_URL}/refreshToken`, {
@@ -53,58 +75,81 @@ export const refreshTokens = async () => {
       body: JSON.stringify({ refreshToken }),
     });
 
+    const data = await response.json();
+
     if (!response.ok) {
-      // Clear tokens if refresh fails
       await clearTokens();
-      return { isAuthenticated: false };
+      showAlert('Token Refresh Failed', data.message || 'Failed to refresh authentication');
+      return {
+        isAuthenticated: false,
+        message: data.message || "Failed to refresh tokens",
+      };
     }
 
-    const { accessToken: newAccessToken, token: newRefreshToken } =
-      await response.json();
+    const { accessToken: newAccessToken, token: newRefreshToken } = data;
 
-    // Store new tokens
+    if (!newAccessToken || !newRefreshToken) {
+      throw new Error('Invalid token data received');
+    }
+
     await AsyncStorage.setItem(TOKEN_KEYS.ACCESS_TOKEN, newAccessToken);
     await AsyncStorage.setItem(TOKEN_KEYS.REFRESH_TOKEN, newRefreshToken);
 
     return { isAuthenticated: true };
   } catch (error) {
-    console.error("Token refresh failed:", error);
     await clearTokens();
-    return { isAuthenticated: false };
+    return handleApiError(error, "Token refresh failed:");
   }
 };
 
 export const loginUser = async (credentials) => {
   try {
+    if (!credentials.username || !credentials.password) {
+      showAlert('Validation Error', 'Please provide both username and password');
+      return { success: false, message: "Missing credentials" };
+    }
+
     const response = await fetch(`${API_URL}/login`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "X-Requested-With": "XMLHttpRequest",
       },
       body: JSON.stringify(credentials),
     });
 
     const data = await response.json();
-    console.log(data);
 
     if (response.ok) {
-      // Store tokens
+      if (!data.accessToken || !data.refreshToken) {
+        throw new Error('Invalid token data received from server');
+      }
+
       await AsyncStorage.setItem(TOKEN_KEYS.ACCESS_TOKEN, data.accessToken);
       await AsyncStorage.setItem(TOKEN_KEYS.REFRESH_TOKEN, data.refreshToken);
+      showAlert('Success', 'Login successful');
       return { success: true };
     }
 
-    return { success: false, message: data.message };
+    showAlert('Login Failed', data.message || 'Invalid credentials');
+    return {
+      success: false,
+      message: data.message || "Login failed. Please check your credentials.",
+    };
   } catch (error) {
-    throw new Error("Login request failed");
+    return handleApiError(error, "Login request failed:");
   }
 };
 
 export const clearTokens = async () => {
-  await AsyncStorage.multiRemove([
-    TOKEN_KEYS.ACCESS_TOKEN,
-    TOKEN_KEYS.REFRESH_TOKEN,
-  ]);
+  try {
+    await AsyncStorage.multiRemove([
+      TOKEN_KEYS.ACCESS_TOKEN,
+      TOKEN_KEYS.REFRESH_TOKEN,
+    ]);
+  } catch (error) {
+    console.error("Error clearing tokens:", error);
+  }
 };
 
 export const registerUser = async ({
@@ -116,38 +161,58 @@ export const registerUser = async ({
   password,
 }) => {
   try {
+    // Input validation
+    if (!firstName || !lastName || !username || !email || !phoneNo || !password) {
+      showAlert('Validation Error', 'Please fill in all required fields');
+      return { success: false, message: "All fields are required" };
+    }
+
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      showAlert('Validation Error', 'Please enter a valid email address');
+      return { success: false, message: "Invalid email format" };
+    }
+
     const requestBody = {
       first_name: firstName,
       last_name: lastName,
-      email: email,
+      email,
       phone_no: phoneNo,
-      password: password,
-      username: username,
+      password,
+      username,
     };
-
-    // Log the request body before sending the request
-    console.log("Request Body:", JSON.stringify(requestBody, null, 2));
 
     const response = await fetch(`${API_URL}/signup`, {
       method: "POST",
       headers: {
-        Accept: "application/json",
+        'Accept': "application/json",
         "Content-Type": "application/json",
         "X-Requested-With": "XMLHttpRequest",
       },
       body: JSON.stringify(requestBody),
     });
 
-    console.log("Response:", response);
-
     const data = await response.json();
-    await AsyncStorage.setItem(TOKEN_KEYS.ACCESS_TOKEN, data["accessToken"]);
-    await AsyncStorage.setItem(TOKEN_KEYS.REFRESH_TOKEN, data["token"]);
-    return {
-      success: response.ok,
-    };
+
+    if (!response.ok) {
+      showAlert('Registration Failed', data.message || 'Failed to register user');
+      return {
+        success: false,
+        message: data.message || "Registration failed",
+      };
+    }
+
+    if (!data.accessToken || !data.token) {
+      throw new Error('Invalid registration response');
+    }
+
+    await AsyncStorage.setItem(TOKEN_KEYS.ACCESS_TOKEN, data.accessToken);
+    await AsyncStorage.setItem(TOKEN_KEYS.REFRESH_TOKEN, data.token);
+
+    showAlert('Success', 'Registration successful');
+    return { success: true };
   } catch (error) {
-    console.error("Error during registration:", error);
-    throw new Error("Registration failed");
+    return handleApiError(error, "Error during registration:");
   }
 };

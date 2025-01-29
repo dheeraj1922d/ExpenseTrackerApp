@@ -5,17 +5,31 @@ import { useRouter } from 'expo-router';
 
 const AuthLoader = () => {
   const router = useRouter();
-  useEffect(() => {
-    checkAuthentication();
-  }, []);
 
-  const checkAuthentication = async () => {
-    const { isAuthenticated } = await checkAuthStatus();
-    if(isAuthenticated){
-      console.log("Redirected to Home");
-    }
-    router.navigate(isAuthenticated ? 'Home' : 'Login');
-  };
+  useEffect(() => {
+    let isMounted = true;
+
+    const checkAuthentication = async () => {
+      try {
+        const { isAuthenticated } = await checkAuthStatus();
+        if (isMounted) {
+          console.log(isAuthenticated);
+          router.replace(isAuthenticated ? 'Home' : 'Login');
+        }
+      } catch (error) {
+        if (isMounted) {
+          console.error('Authentication check failed:', error);
+          router.replace('Login');
+        }
+      }
+    };
+
+    checkAuthentication();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [router]);
 
   return (
     <View style={styles.container}>
