@@ -42,7 +42,7 @@ const Login = () => {
       const response = await loginUser(credentials);
       console.log(response);
       if (response.success) {
-        router.navigate('Home');
+        router.navigate('HomeTabs');
       } else {
         Alert.alert('Error', response.message || 'Login failed');
       }
@@ -93,7 +93,7 @@ const Login = () => {
 
       <TouchableOpacity 
         style={LoginStyles.signupButton}
-        onPress={() => router.navigate('Home')}
+        onPress={() => router.navigate('HomeTabs')}
       >
         <Text style={LoginStyles.signupText}>
           Go back to Home ?

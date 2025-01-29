@@ -16,14 +16,12 @@ export const getUserProfile = async (router) => {
       console.log("Error retrieving access token: ", e);
     }
 
-    if (!accessToken) {
+    if (!accessToken) {  
       router.navigate("Login");
       return;
     }
     const response = await fetch(`${API_URL}/getUser`, {
       method: "GET",
-      mode: "cors",
-      credentials: "include",
       headers: {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
